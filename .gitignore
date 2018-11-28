@@ -1,0 +1,5 @@
+## les fichiers à exclure explicitement
+**/*__ignore__*
+
+## certains dossiers
+android_wikis/*
