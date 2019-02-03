@@ -3,88 +3,65 @@
 
 #### configurer le pi headless sur plusieurs réseaux
 
-##### Objectif : 
+##### Objectifs : 
 - configurer le pi pour qu'il puisse se connecter automatiquement à plusieurs réseaux wifi pré établis.
 - inclure dans cette liste des réseaux reconnus par le pi un hotspot généré à l'aide d'un smartphone. Le pi étant en headless, si le réseau domestique tombe ou si l'on déménage le pi, on pourra ainsi toujours s'y connecter grâce au hotspot wifi préconfiguré. (**NB : le pi ne digère pas les réseaux wifi en bande de fréquence 5GHz, mais uniquement les 2,4GHz. Sur votre android, réglez de fait la fréquence du hotspot en conséquence**)
-
-##### Contraintes : 
-- dans le fichier /etc/dhcpd.conf, on peut paramétrer une ip fixe par interface. Or ici, on veut pouvoir gérer plusieurs réseaux potentiels sur la même interface wlan0, et définir une certaine adresse ip sur l'un, une autre sur un second, et un comportement dynamique (automatique) sur un troisième. En fonction du réseau que le pi captera sur la carte wifi, il pourra donc changer de comportement de demande d'adresse ip.
+- paramétrér une adresse ip statique différente sur chaque réseau ssid ( + réseau filaire si besoin)
 
 ##### Solution : 
-- on ne va pas utiliser le fichier /etc/dhcpd.conf, mais les fichiers `/etc/wpa_supplicant/wpa_supplicant.conf` et `/etc/network/interfaces`
-- dans `/etc/wpa_supplicant/wpa_supplicant.conf`, on configure les interfaces virtuelles voulues : 
-	```
-	ctrl_interface=/var/run/wpa_supplicant
-	update_config=1
-	country=FR
-
-	## premier réseau wifi possible. 
-	## on lui donne un nom, "box_sfr", ce qui créera une interface virtuelle utilisable dans /etc/network/interfaces
-	network={
-			ssid="<nom_du_reseau>"
+- quels fichiers utiliser : 
+	- `/etc/wpa_supplicant/wpa_supplicant.conf` : pour pouvoir renseigner les noms et clefs des réseaux ssid utilisés (wifi)
+	- `/etc/dhcpcd.conf` : uniquement si l'on souhaite figer définir une ip statique sur certain réseaux. On aura besoin que le service dhcpcd.service soit activé (et enabled).
+	- `/etc/network/interfaces` : sur rasbian stretch, on peut simplement __supprimer__ ce fichier, car tout est géré par dhcpcd.
+	
+- comment configurer ?
+	- `/etc/wpa_supplicant/wpa_supplicant.conf` :
+		```
+		ctrl_interface=/var/run/wpa_supplicant
+		update_config=1
+		country=FR
+		
+		## nom et clef du premier réseau wifi
+		network={
+			ssid="mon_reseau_de_chez_moi"
 			scan_ssid=1
-			psk="<mot_de_passe_du_reseau>"
+			psk="le_mot_de_passe_de_ma_box"
 			priority=0
-			id_str="box_sfr"
-	}
+			id_str="box_maison" ## ne sert que si l'on utilise /etc/network/interfaces pour gérer les interfaces virtuelles. Ici, on pourrait donc supprimer cette ligne
+		}
 
-	## deuxième réseau possible : c'est le réseau de secours en hotspot wifi via android, au cas où le réseau domestique n'est pas dispo
-	## on fixe une priorité élevée. Ainsi, lorsque ce réseau est activé, le pi s'y connecte en priorité. Rescue first :)
-	network={
-			ssid="pi_rescue_network"
+		## deuxième réseau.
+		## Ici, on paramètre un réseau de secours (typiquement un hotspot wifi créé par un smartphone) pour pouvoir se connecter au pi headless si le réseau domestique tombe ou si l'on déménage le pi.
+		## La priorité est de fait plus élevée, pour que le pi se connecte à ce réseau dès qu'on le créé.
+		network={
+			ssid="mon_reseau_de_secours"
 			scan_ssid=1
-			psk="<mot_de_passe>"
+			psk="le_mot_de_passe"
 			priority=100
-			id_str="rescue_network"
-	}
-	
-	## troisième réseau 
-	network={
-		(...)
-	}
-	```
-- dans `/etc/network/interfaces`, on va configurer les stratégies d'allocations ip : 
-	```
-	# interfaces(5) file used by ifup(8) and ifdown(8)
+			id_str="rescue_network" ## ne sert que si l'on utilise /etc/network/interfaces pour gérer les interfaces virtuelles. Ici, on pourrait donc supprimer cette ligne 
+		}
+		```
+	- `/etc/dhcpcd.conf` pour déterminer les adresses ip fixes (sans précision sur un réseau, l'adresse ip pour ce réseau sera alors allouée dynamiquement) : 
+		```
+		## NB : pour trouver les adresses des DNS de la gateway, aller voir le fichier /etc/resolv.conf. Ou 8.8.8.8 pour utiliser le DNS google.
+		
+		## ip fixe sur le réseau filaire :
+		interface enxb827eb91ca8f
+		static ip_address=192.168.0.123/24
+		static routers=192.168.0.1
+		static domain_name_servers=8.8.8.8
 
-	# Please note that this file is written to be used with dhcpcd
-	# For static IP, consult /etc/dhcpcd.conf and 'man dhcpcd.conf'
+		## ip fixe sur le wifi / réseau mon_reseau_de_chez_moi
+		interface wlan0
+		ssid mon_reseau_de_chez_moi
+		static ip_address=192.168.0.123/24
+		static routers=192.168.0.1
+		static domain_name_servers=8.8.8.8
 
-	# Include files from /etc/network/interfaces.d:
-	source-directory /etc/network/interfaces.d
-
-	## l'interface lo : on n'y touche pas
-	auto lo
-	iface lo inet loopback
-	
-	## l'interface ethernet
-	# on trouve son nom grâce à la commande ip address (ou ip a)
-	allow-hotplug enxb827eb91ca8f
-	iface enxb827eb91ca8f inet static
-	address 192.168.0.146
-	gateway 192.168.0.1
-	netmask 255.255.255.0
-	dns-nameservers 89.2.0.1 89.2.0.2
-
-	## l'interface wlan0 : on lui dit d'aller voir le fichier /etc/wpa_supplicant/wpa_supplicant.conf
-	allow-hotplug wlan0
-	iface wlan0 inet manual
-	wpa-roam /etc/wpa_supplicant/wpa_supplicant.conf
-
-	## on configure le réseau "box_sfr" définit plus haut comme une interface virtuelle
-	## et on définit une ip statique : 
-	iface box_sfr inet static
-	address 192.168.0.144
-	gateway 192.168.0.1
-	netmask 255.255.255.0
-	dns-nameservers 89.2.0.1 89.2.0.2
-
-	## quand au réseau de secours, on laisse l'allocation dynamique. On pourra utiliser nmap -sP 192.168.0.0/24 pour retrouver l'ip du pi une fois connecté
-	iface rescue_network inet dhcp
-	```
-**NB : les services networking et dhcpcd fonctionnent sont tous les deux actifs**
-
-## à faire :
-ok : - ajouter la déclaration des adresses DNS sfr_box dans network interfaces !
-- mettre au propre le wiki, et la version __ignore__ où j'aurai les noms des connexions et les mots de passe
-- modifier le wiki intall_raspbian_headless(...) pour intégrer dès le début la connexion en ip statique
+		## ip fixe sur le wifi / réseau mon_reseau_de_secours
+		## ici, on ne met rien au sujet de ce réseau : pour s'y connecter, le pi demandera alors une ip dynamique
+		ssid mon_reseau_de_secours
+		static ip_address=192.168.43.123/24
+		static routers=192.168.43.1
+		static domain_name_servers=8.8.8.8
+		```
