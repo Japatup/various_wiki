@@ -30,3 +30,11 @@ Pour ce faire, il faut avoir donné au programme une autre sortie que la console
 
 Pourquoi attendre avant de le lancer ?
 Parce qu'il arrive parfois que le lancement plante si on le lance en même temps que i3.
+
+#### gestion des logs
+à chaque raccourci activé, autokey génère une ligne de log dans le fichier ~/.config/autokey/autokey.log
+Une fois ce fichier à 5M, il est historisé (ie devient autokey.log.1, autokey.log.2, etc.) et un nouveau autokey.log est créé et appendé.
+Pour éviter une écriture disque (inutile ici) à chaque utilisation d'un keybinding, on fait pointer autokey.log vers /dev/null avec un lien symbolique : 
+```
+ln -s /dev/null ~/.config/autokey/autokey.log
+```
